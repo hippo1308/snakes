@@ -1,7 +1,14 @@
+from tkinter import N
 import pygame, sys, random, json, os
 #IMPORT THE REST LATER
 
 pygame.init()
+pygame.mixer.init()
+
+EAT_SOUND = pygame.mixer.Sound("eat.wav")
+POWERUP_SOUND = pygame.mixer.Sound("powerup.wav")
+GAMEOVER_SOUND = pygame.mixer.Sound("gameover.wav")
+
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
@@ -82,7 +89,7 @@ class PowerUp:
 
 class Menu:
     def __init__(self):
-        self.options = ["Easy", "Medium", "Hard", "Quit"]
+        self.options = ["Easy", "Medium", "Hard", "AI Snake", "Quit"]
         self.selected = 0
 
     
@@ -122,31 +129,55 @@ class Game:
         self.double_points = False
 
         self.menu = Menu()
+        self.level = None
         self.spawn_food()
         self.frame_count = 0
-        self.level = None
+        self.ai_snake = None
+        self.ai_score = 0
 
-        self.invincible_time = 0
+        self.invincible_timer = 0
         self.double_points_timer = 0
         self.slow_timer = 0
     
+    def countdown(self):
+        for i in range(3,0,-1):
+            self.screen.fill(BLACK)
+            text = self.font.render(str(i), True, YELLOW)
+            self.screen.blit(text, (SCREEN_WIDTH//2 - text.get_width()//2, SCREEN_HEIGHT//2 - text.get_height()//2))
+            pygame.display.flip()
+            pygame.time.delay(700)
+        self.screen.fill(BLACK)
+        text = self.font.render("GO!", True, GREEN)
+        self.screen.blit(text, (SCREEN_WIDTH//2 - text.get_width()//2, SCREEN_HEIGHT//2 - text.get_height()//2))
+        pygame.display.flip()
+        pygame.time.delay(500)
+    
     def set_level_settings(self):
-        if self.level == "easy":
+        if self.level == "ai":
             self.base_speed = 10
             self.game_speed = 10
             self.obstacles = []
+            self.ai_snake = Snake(GRID_WIDTH//2, GRID_HEIGHT//2-5)
+        else:
+            self.ai_snake = None
+
+        if self.level == "easy":
+            self.base_speed = 5
+            self.game_speed = 5
+            self.obstacles = []
         elif self.level == "medium":
-            self.base_speed = 15
-            self.game_speed = 15
+            self.base_speed = 10
+            self.game_speed = 10
             self.obstacles = []
         elif self.level == "hard":
-            self.base_speed = 20
-            self.game_speed = 20
+            self.base_speed = 15
+            self.game_speed = 15
             self.generate_obstacles()
+
     
     def generate_obstacles(self):
         self.obstacles = []
-        for _ in range(10):
+        for _ in range(5):
             while True:
                 x = random.randint(0, GRID_WIDTH-1)
                 y = random.randint(0, GRID_HEIGHT-1)
@@ -171,7 +202,10 @@ class Game:
             pass
 
     def spawn_food(self):
-        food_count = 3 if self.level == "hard" else 1
+        if self.level =="hard" or self.level == "medium":
+            food_count = 3
+        else:
+            food_count = 1
         for _ in range(food_count):
             while True:
                 x = random.randint(0, GRID_WIDTH-1)
@@ -189,7 +223,11 @@ class Game:
     def spawn_power_up(self):
         if self.level == "easy":
             return
-        if random.random() <0.1:
+        if self.level == "medium":
+            chance = 0.05
+        else:
+            chance = 0.1
+        if random.random() <chance:
             while True:
                 x = random.randint(0, GRID_WIDTH-1)
                 y = random.randint(0, GRID_HEIGHT-1)
@@ -209,7 +247,7 @@ class Game:
             self.double_points = True
         elif power_up.type == 'slow':
             self.game_speed = max(5, self.base_speed -5)
-            self.slow_time = now
+            self.slow_timer = now
 
     def update_power_ups(self):
         now = pygame.time.get_ticks()
@@ -228,7 +266,7 @@ class Game:
             elif self.state == "playing":
                 self.handle_game_events()
                 self.frame_count += 1
-                if self.frame_count >= self.game_speed:
+                if self.frame_count >=(60 // self.game_speed):
                     self.update()
                     self.frame_count = 0
                 self.draw()
@@ -253,18 +291,26 @@ class Game:
                         self.level = "easy"
                         self.set_level_settings()
                         self.reset()
+                        self.countdown()
                         self.state = "playing"
                     elif self.menu.selected == 1:
                         self.level = "medium"
                         self.set_level_settings()
                         self.reset()
+                        self.countdown()
                         self.state = "playing"
                     elif self.menu.selected == 2:
                         self.level = "hard"
                         self.set_level_settings()
                         self.reset()
+                        self.countdown()
                         self.state = "playing"
                     elif self.menu.selected == 3:
+                        self.level = "ai"
+                        self.reset()
+                        self.countdown()
+                        self.state = "playing"
+                    elif self.menu.selected == 4:
                         pygame.quit()
                         sys.exit()
 
@@ -298,20 +344,39 @@ class Game:
         dx, dy = self.snake.direction
         new_head = (head_x + dx, head_y + dy)
 
-        if self.level in ["medium", "hard"]:
-            if new_head[0] < 0 or new_head[0] >= GRID_WIDTH or new_head[1] < 0 or new_head[1] >= GRID_HEIGHT:
-                if not self.invincible:
-                    self.state = "game_over"
-                    if self.score > self.high_score:
-                        self.high_score = self.score
-                        self.save_high_score()
-                        return
+        if self.level == "ai" and self.ai_snake:
+            
+            head_x, head_y = self.ai_snake.body[0]
+            dx = 1 if self.food.x > head_x else -1 if self.food.x < head_x else 0
+            dy = 1 if self.food.y > head_y else -1 if self.food.y < head_y else 0
+            
+            if abs(self.food.x - head_x) > abs(self.food.y -head_y):
+                self.ai_snake.set_direction(dx,0)
+            else:
+                self.ai_snake.set_direction(0,dy)
+            self.ai_snake.move(wrap=True)
+
+        if self.level == "hard" and new_head in self.obstacles:
+            if not self.invincible:
+                self.state = "game_over"
+                if self.score > self.high_score:
+                    self.high_score = self.score
+                    self.save_high_score()
+                return
         wrap = self.level == "easy"
+        if not wrap:
+            if (new_head[0] <0 or new_head[0] >= GRID_WIDTH or new_head[1] <0 or new_head[1] >= GRID_HEIGHT):
+                self.state = "game_over"
+                if self.score >self.high_score:
+                    self.high_score = self.score
+                    self.save_high_score()
+                return
         self.snake.move(wrap=wrap)
         self.update_power_ups()
         self.spawn_power_up()
 
         if self.snake.collides_with((self.food.x, self.food.y)):
+            pygame.mixer.Sound.play(EAT_SOUND)
             self.snake.grow = True
             if self.food.type == "regular":
                 self.score += 1 *(2 if self.double_points else 1)
@@ -321,19 +386,38 @@ class Game:
                 self.game_speed += 5
             elif self.food.type == "power":
                 self.invincible = True
-                self.power_up_timer = pygame.time.get_ticks()
+                self.invincible_timer = pygame.time.get_ticks()
             self.spawn_food()
+        
+        if self.level == "ai" and self.ai_snake:
+            if self.ai_snake.collides_with((self.food.x, self.food.y)):
+                self.ai_snake.grow = True
+                self.ai_score += 1
+                self.spawn_food()
+            
 
         for power_up in self.power_ups[:]:
             if self.snake.collides_with((power_up.x, power_up.y)):
+                pygame.mixer.Sound.play(POWERUP_SOUND)
                 self.handle_power_ups(power_up)
                 self.power_ups.remove(power_up)
 
         if self.snake.collides_with_self() and not self.invincible:
+            pygame.mixer.Sound.play(GAMEOVER_SOUND)
             self.state = "game_over"
             if self.score > self.high_score:
                 self.high_score = self.score
                 self.save_high_score()
+        
+        if self.level == "ai" and self.ai_snake:
+            if self.snake.body[0] in self.ai_snake.body:
+                pygame.mixer.Sound.play(GAMEOVER_SOUND)
+                self.state = "game_over"
+                if self.score > self.high_score:
+                    self.high_score = self.score
+                    self.save_high_score()
+                return
+    
 
     def draw_grid(self):
         for x in range(0, SCREEN_WIDTH, GRID_SIZE):
@@ -345,19 +429,61 @@ class Game:
         self.screen.fill(BLACK)
         self.draw_grid()
 
+        if self.level == "hard":
+            for (x, y) in self.obstacles:
+                pygame.draw.rect(self.screen, (251, 118, 255), (x*GRID_SIZE, y*GRID_SIZE, GRID_SIZE, GRID_SIZE))
         for i, (x,y) in enumerate(self.snake.body):
             color = GREEN if i == 0 else WHITE
             pygame.draw.rect(self.screen, color, (x*GRID_SIZE, y*GRID_SIZE, GRID_SIZE, GRID_SIZE))
         
+        if self.level == "ai" and self.ai_snake:
+            for i, (x,y) in enumerate(self.ai_snake.body):
+                color = (255, 100, 100) if i == 0 else (200, 200, 200)
+                pygame.draw.rect(self.screen, color, (x*GRID_SIZE, y*GRID_SIZE, GRID_SIZE, GRID_SIZE))
+            
         self.food.draw(self.screen)
 
         for power_up in self.power_ups:
             power_up.draw(self.screen)
-
+            
         score_text = self.font.render(f"Score: {self.score}", True, WHITE)
-        self.screen.blit(score_text, (10,10))
+        self.screen.blit(score_text, (10, 10))
         high_score_text = self.small_font.render(f"High Score: {self.high_score}", True, YELLOW)
         self.screen.blit(high_score_text, (10,50))
+
+        if self.level == "ai":
+            ai_score_text = self.small_font.render(f"AI Score: {self.ai_score}", True, (255, 100, 100))
+            self.screen.blit(ai_score_text, (10,90))
+
+
+
+        bar_width = 150
+        bar_height = 15
+        bar_y = 80
+        now = pygame.time.get_ticks()
+
+        if self.invincible:
+            time_left = max(0, self.power_up_duration - (now - self.invincible_timer))
+            width = int(bar_width * (time_left / self.power_up_duration))
+            pygame.draw.rect(self.screen, ORANGE, (SCREEN_WIDTH - bar_width - 20, bar_y, width, bar_height))
+            label = self.small_font.render("Invincible", True, ORANGE)
+            self.screen.blit(label, (SCREEN_WIDTH - bar_width - 20, bar_y -20))
+            bar_y += 40
+        if self.double_points:
+            time_left = max(0, self.power_up_duration -(now - self.double_points_timer))
+            width = int(bar_width * (time_left / self.power_up_duration))
+            pygame.draw.rect(self.screen, GREEN, (SCREEN_WIDTH - bar_width - 20, bar_y, width, bar_height))
+            label = self.small_font.render("Double points", True, GREEN)
+            self.screen.blit(label, (SCREEN_WIDTH - bar_width - 20, bar_y - 20))
+            bar_y += 40
+        if self.game_speed != self.base_speed:
+            time_left = max(0, self.power_up_duration - (now-self.slow_timer))
+            width = int(bar_width * (time_left / self.power_up_duration))
+            pygame.draw.rect(self.screen, GRAY, (SCREEN_WIDTH - bar_width - 20, bar_y, width, bar_height))
+            label = self.small_font.render("Slow", True, GRAY)
+            self.screen.blit(label, (SCREEN_WIDTH - bar_width - 20, bar_y -20))
+            bar_y += 40
+
 
     def draw_menu(self):
         self.screen.fill(BLACK)
@@ -373,18 +499,48 @@ class Game:
         self.screen.blit(score_text, (SCREEN_WIDTH//2 - score_text.get_width()//2, 260))
         high_score_text = self.small_font.render(f"High Score: {self.high_score}", True, YELLOW)
         self.screen.blit(high_score_text, (SCREEN_WIDTH//2 - high_score_text.get_width()//2, 320))
+
+        if self.level == "ai":
+            ai_score_text = self.font.render(f"AI Score: {self.ai_score}", True, (255, 100, 100))
+            self.screen.blit(ai_score_text, (SCREEN_WIDTH//2 - ai_score_text.get_width()//2, 360))
+
+            if self.ai_snake is None or self.state == "game_over":
+                if self.score > self.ai_score:
+                    winner = "YOU WON!!"
+                elif self.score < self.ai_score:
+                    winner = "you lost..."
+                else:
+                    winner = "Tie?!?!"
+                winner_text = self.font.render(winner, True, YELLOW)
+                self.screen.blit(winner_text, (SCREEN_WIDTH//2 - winner_text.get_width()//2, 400))
+
         prompt = self.small_font.render("Press Enter to return to menu", True, GRAY)          
-        self.screen.blit(prompt, (SCREEN_WIDTH//2 - prompt.get_width()//2, 380))
+        self.screen.blit(prompt, (SCREEN_WIDTH//2 - prompt.get_width()//2, 440))
 
     def reset(self):
         self.score = 0
+        self.ai_score = 0
         self.snake = Snake(GRID_WIDTH//2, GRID_HEIGHT//2)
         self.food = Food()
         self.power_ups = []
         self.game_speed = self.base_speed
         self.invincible = False
         self.double_points = False
+
+        self.invincible_timer = 0
+        self.double_points_timer = 0
+        self.slow_timer = 0
+
+        if self.level == "hard":
+            self.generate_obstacles()
+        else:
+            self.obstacles = []
+        self.spawn_food()
+
+        if self.level == "ai":
+            self.ai_snake = Snake(GRID_WIDTH//2, GRID_HEIGHT//2-5)
+        else:
+            self.ai_snake = None
 if __name__ == "__main__":
     game = Game() 
     game.run() 
-    
