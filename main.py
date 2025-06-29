@@ -1,6 +1,4 @@
-from tkinter import N
 import pygame, sys, random, json, os
-#IMPORT THE REST LATER
 
 pygame.init()
 pygame.mixer.init()
@@ -54,6 +52,17 @@ class Snake:
     
     def collides_with(self, pos):
         return self.body[0] == pos
+    
+    def draw(self, screen, skin_colors):
+        for i, segment in enumerate(self.body):
+            if i == 0:
+                color = skin_colors['head']
+            else:
+                color = skin_colors['body']
+            
+            pygame.draw.rect(screen, color, (segment[0]*GRID_SIZE, segment[1]*GRID_SIZE, GRID_SIZE, GRID_SIZE))
+            pygame.draw.rect(screen, BLACK, (segment[0]*GRID_SIZE, segment[1]*GRID_SIZE, GRID_SIZE, GRID_SIZE), 1)
+
 
 class Food:
     def __init__(self):
@@ -89,7 +98,7 @@ class PowerUp:
 
 class Menu:
     def __init__(self):
-        self.options = ["Easy", "Medium", "Hard", "AI Snake", "Quit"]
+        self.options = ["Easy", "Medium", "Hard", "AI Snake", "Time Mode", "Snake Skins", "Quit"]
         self.selected = 0
 
     
@@ -138,7 +147,27 @@ class Game:
         self.invincible_timer = 0
         self.double_points_timer = 0
         self.slow_timer = 0
+
+        self.time_mode = False
+        self.game_start_time = 0
+        self.time_bonus = 0
+        self.speed_increase_timer = 0
+        self.update_counter = 0
+
+        self.snake_skins = {
+            "default": {"head": GREEN, "body": (0,200,0)},
+            "fire": {"head": (255,100,0), "body": (255, 50, 0)},
+            "ice": {"head": (100, 200, 255), "body": (50, 150, 255)},
+            "gold": {"head": (255, 215, 0), "body": (255, 200, 0)}
+        }
+        self.current_skin = "default"
     
+    def start_time_mode(self):
+        self.time_mode = True
+        self.game_start_time = pygame.time.get_ticks()
+        self.speed_increase_timer = 0
+        self.base_speed = 10
+
     def countdown(self):
         for i in range(3,0,-1):
             self.screen.fill(BLACK)
@@ -265,10 +294,7 @@ class Game:
                 self.draw_menu()
             elif self.state == "playing":
                 self.handle_game_events()
-                self.frame_count += 1
-                if self.frame_count >=(60 // self.game_speed):
-                    self.update()
-                    self.frame_count = 0
+                self.update()
                 self.draw()
             elif self.state == "game_over":
                 self.handle_game_over_events()
@@ -289,28 +315,44 @@ class Game:
                 elif event.key == pygame.K_RETURN:
                     if self.menu.selected == 0:
                         self.level = "easy"
+                        self.time_mode = False
                         self.set_level_settings()
                         self.reset()
                         self.countdown()
                         self.state = "playing"
                     elif self.menu.selected == 1:
                         self.level = "medium"
+                        self.time_mode = False
                         self.set_level_settings()
                         self.reset()
                         self.countdown()
                         self.state = "playing"
                     elif self.menu.selected == 2:
                         self.level = "hard"
+                        self.time_mode = False
                         self.set_level_settings()
                         self.reset()
                         self.countdown()
                         self.state = "playing"
                     elif self.menu.selected == 3:
                         self.level = "ai"
+                        self.time_mode = False
                         self.reset()
                         self.countdown()
                         self.state = "playing"
-                    elif self.menu.selected == 4:
+                    elif self.menu.selected == 4:  # Time Mode
+                        self.level = "easy"
+                        self.time_mode = True
+                        self.game_start_time = pygame.time.get_ticks()
+                        self.speed_increase_timer = 0
+                        self.base_speed = 10
+                        self.set_level_settings()
+                        self.reset()
+                        self.countdown()
+                        self.state = "playing"
+                    elif self.menu.selected == 5:  # Snake Skins
+                        self.show_skin_selector()
+                    elif self.menu.selected == 6:  # Quit
                         pygame.quit()
                         sys.exit()
 
@@ -340,12 +382,33 @@ class Game:
                     self.state = "menu"
         
     def update(self):
+        if self.time_mode:
+            current_time = pygame.time.get_ticks()
+            elapsed_seconds = (current_time - self.game_start_time) // 1000
+
+            if elapsed_seconds > self.speed_increase_timer + 30:
+                self.speed_increase_timer = elapsed_seconds
+                self.base_speed += 2
+
+            current_speed = min(self.base_speed + (elapsed_seconds // 30) *2, 30)
+
+            if self.update_counter >= 60 // current_speed:
+                self.update_counter = 0
+            else:
+                self.update_counter += 1
+                return  # Don't update game logic if not time to move
+        else:
+            if self.update_counter >= 60 // self.game_speed:
+                self.update_counter = 0
+            else:
+                self.update_counter += 1
+                return  # Don't update game logic if not time to move
+
         head_x, head_y = self.snake.body[0]
         dx, dy = self.snake.direction
         new_head = (head_x + dx, head_y + dy)
 
         if self.level == "ai" and self.ai_snake:
-            
             head_x, head_y = self.ai_snake.body[0]
             dx = 1 if self.food.x > head_x else -1 if self.food.x < head_x else 0
             dy = 1 if self.food.y > head_y else -1 if self.food.y < head_y else 0
@@ -432,9 +495,9 @@ class Game:
         if self.level == "hard":
             for (x, y) in self.obstacles:
                 pygame.draw.rect(self.screen, (251, 118, 255), (x*GRID_SIZE, y*GRID_SIZE, GRID_SIZE, GRID_SIZE))
-        for i, (x,y) in enumerate(self.snake.body):
-            color = GREEN if i == 0 else WHITE
-            pygame.draw.rect(self.screen, color, (x*GRID_SIZE, y*GRID_SIZE, GRID_SIZE, GRID_SIZE))
+        
+        # Draw snake using skin system
+        self.snake.draw(self.screen, self.snake_skins[self.current_skin])
         
         if self.level == "ai" and self.ai_snake:
             for i, (x,y) in enumerate(self.ai_snake.body):
@@ -443,19 +506,36 @@ class Game:
             
         self.food.draw(self.screen)
 
+        if self.time_mode:
+            current_time = pygame.time.get_ticks()
+            elapsed_seconds = (current_time - self.game_start_time) // 1000
+            time_bonus = elapsed_seconds * 10
+
+            score_text = f"Score: {self.score + time_bonus}"
+            time_text = f"Time: {elapsed_seconds}s"
+            speed_text = f"Speed: {min(self.base_speed + (elapsed_seconds //30) *2, 30)}"
+
+            score_surface = self.font.render(score_text, True, WHITE)
+            time_surface = self.small_font.render(time_text, True, WHITE)
+            speed_surface = self.small_font.render(speed_text, True, WHITE)
+
+            self.screen.blit(score_surface,(10,10))
+            self.screen.blit(time_surface, (10,40))
+            self.screen.blit(speed_surface, (10, 70))
+        else:
+            score_text = f"Score: {self.score}"
+            score_surface = self.font.render(score_text, True, WHITE)
+            self.screen.blit(score_surface, (10, 10))
+
         for power_up in self.power_ups:
             power_up.draw(self.screen)
             
-        score_text = self.font.render(f"Score: {self.score}", True, WHITE)
-        self.screen.blit(score_text, (10, 10))
         high_score_text = self.small_font.render(f"High Score: {self.high_score}", True, YELLOW)
         self.screen.blit(high_score_text, (10,50))
 
         if self.level == "ai":
             ai_score_text = self.small_font.render(f"AI Score: {self.ai_score}", True, (255, 100, 100))
             self.screen.blit(ai_score_text, (10,90))
-
-
 
         bar_width = 150
         bar_height = 15
@@ -516,7 +596,40 @@ class Game:
 
         prompt = self.small_font.render("Press Enter to return to menu", True, GRAY)          
         self.screen.blit(prompt, (SCREEN_WIDTH//2 - prompt.get_width()//2, 440))
+    
+    def show_skin_selector(self):
+        import tkinter as tk
+        from tkinter import colorchooser
 
+        selector_window = tk.Tk()
+        selector_window.title("Snake skin selector")
+        selector_window.geometry("400x300")
+
+        title_label = tk.Label(selector_window, text="Choose your snake skin", font=("Arial", 16, "bold"))
+        title_label.pack(pady=20)
+
+        for skin_name in self.snake_skins.keys():
+            skin_frame = tk.Frame(selector_window)
+            skin_frame.pack(pady=5)
+
+            preview_canvas = tk.Canvas(skin_frame, width=60, height=20, bg="black")
+            preview_canvas.pack(side=tk.LEFT, padx=10)
+
+            head_color = self.snake_skins[skin_name]["head"]
+            body_color = self.snake_skins[skin_name]['body']
+
+            preview_canvas.create_oval(5,5,15,15, fill=f"#{head_color[0]:02x}{head_color[1]:02x}{head_color[2]:02x}")
+            preview_canvas.create_oval(20,5,30,15, fill=f"#{body_color[0]:02x}{body_color[1]:02x}{body_color[2]:02x}")
+            preview_canvas.create_oval(35,5,45,15, fill=f"#{body_color[0]:02x}{body_color[1]:02x}{body_color[2]:02x}")
+
+            tk.Button(skin_frame, text=skin_name.title(), command=lambda s=skin_name: self.select_skin(s,selector_window)).pack(side=tk.LEFT, padx=10)
+
+        selector_window.mainloop()
+    def select_skin(self, skin_name, window):
+        self.current_skin = skin_name
+        window.destroy()
+        self.reset()
+    
     def reset(self):
         self.score = 0
         self.ai_score = 0
@@ -541,6 +654,7 @@ class Game:
             self.ai_snake = Snake(GRID_WIDTH//2, GRID_HEIGHT//2-5)
         else:
             self.ai_snake = None
+            
 if __name__ == "__main__":
     game = Game() 
     game.run() 
