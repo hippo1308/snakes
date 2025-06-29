@@ -1,3 +1,4 @@
+from numpy.polynomial.polynomial import polycompanion
 import pygame, sys, random, json, os
 
 pygame.init()
@@ -29,6 +30,7 @@ class Snake:
         self.body = [(x,y), (x-1, y), (x-2, y)]
         self.direction = (1, 0)
         self.grow = False
+        self.tongue_counter = 0
 
     def move(self, wrap=True):
         head_x, head_y = self.body[0]
@@ -57,6 +59,16 @@ class Snake:
         for i, segment in enumerate(self.body):
             if i == 0:
                 color = skin_colors['head']
+                pygame.draw.rect(screen, color, (segment[0]*GRID_SIZE, segment[1]*GRID_SIZE, GRID_SIZE, GRID_SIZE))
+                pygame.draw.rect(screen, BLACK, (segment[0]*GRID_SIZE, segment[1]*GRID_SIZE, GRID_SIZE, GRID_SIZE))
+
+                self.tongue_counter += 1
+                if self.tongue_counter % 120 < 30:
+                    dx, dy = self.direction
+                    tongue_x = segment[0]*GRID_SIZE + GRID_SIZE//2 +dx*15
+                    tongue_y = segment[1]*GRID_SIZE + GRID_SIZE//2 + dy*15
+                    pygame.draw.circle(screen, RED, (tongue_x, tongue_y), 2)
+
             else:
                 color = skin_colors['body']
             
@@ -658,3 +670,4 @@ class Game:
 if __name__ == "__main__":
     game = Game() 
     game.run() 
+
